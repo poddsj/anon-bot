@@ -16,6 +16,7 @@ from config import (
 )
 from database import (
     upsert_user, get_last_ts, set_last_ts, get_user,
+    save_support_map,
 )
 from keyboards.menus import main_menu_kb, cancel_kb
 from states.support import SupportStates
@@ -116,6 +117,7 @@ async def support_message(message: Message, state: FSMContext, bot: Bot):
             from_chat_id=message.chat.id,
             message_id=message.message_id,
         )
+        await save_support_map(sent.message_id, user.id)
         await bot.send_message(
             SUPPORT_CHANNEL_ID,
             "↩️ <i>Ответьте reply'ем на сообщение пользователя, чтобы отправить ответ.</i>",
