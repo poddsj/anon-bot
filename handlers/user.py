@@ -132,15 +132,12 @@ async def support_message(message: Message, state: FSMContext, bot: Bot):
     sent_any = False
     for admin_id in ADMINS:
         try:
-            # 1) Карточка с данными пользователя
             await bot.send_message(admin_id, header)
-            # 2) Копия сообщения пользователя
             sent = await bot.copy_message(
                 chat_id=admin_id,
                 from_chat_id=message.chat.id,
                 message_id=message.message_id,
             )
-            # 3) Сохраняем связь "ID сообщения в ЛС админа → user_id"
             await save_support_map(sent.message_id, user.id)
             sent_any = True
         except Exception as e:
