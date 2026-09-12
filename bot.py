@@ -1,6 +1,9 @@
 import asyncio
 import logging
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -8,7 +11,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 from config import BOT_TOKEN, PROXY
 from database import init_db
-from handlers import user, admin
+from handlers import user, admin, support_admin
 
 logging.basicConfig(level=logging.INFO)
 
@@ -30,9 +33,10 @@ async def main():
             token=BOT_TOKEN,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
-    # ----------------------------------------------
 
+    # --- Подключение роутеров ---
     dp = Dispatcher()
+    dp.include_router(support_admin.router)   # первым
     dp.include_router(admin.router)
     dp.include_router(user.router)
 

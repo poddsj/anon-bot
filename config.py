@@ -1,22 +1,13 @@
-BOT_TOKEN = "8827872641:AAFVcFosGXqPP85LK1krubHj8at-4cjlqVQ"
+import os
 
-# Публичный канал, куда идут анонимные сообщения
-PUBLIC_CHANNEL_ID = -1004466540343
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+PUBLIC_CHANNEL_ID = int(os.environ["PUBLIC_CHANNEL_ID"])
+LOG_CHANNEL_ID = int(os.environ["LOG_CHANNEL_ID"])
+ADMINS = [int(x) for x in os.environ.get("ADMINS", "").split(",") if x.strip()]
+REQUIRED_CHANNEL = os.environ.get("REQUIRED_CHANNEL", "")
+REQUIRED_CHANNEL_URL = os.environ.get("REQUIRED_CHANNEL_URL", "")
+PROXY = os.environ.get("PROXY") or None
+SUPPORT_CHANNEL_ID = int(os.environ["SUPPORT_CHANNEL_ID"])
 
-# Закрытый лог-канал (только для админов)
-LOG_CHANNEL_ID = -1004448454925
-
-# Канал, на который нужно подписаться (можно указать @username или ID -100...)
-REQUIRED_CHANNEL = "@podslushano14_1"
-# Ссылка для кнопки "Подписаться"
-REQUIRED_CHANNEL_URL = "https://t.me/podslushano14_1"
-
-# ID админов (личные Telegram ID)
-ADMINS = [6428177555]
-
-# КД между сообщениями (в секундах)
-COOLDOWN = 3 * 60
-
+COOLDOWN = 2 * 60
 DB_PATH = "data.db"
-
-PROXY = "socks5://fY2PJN:DWXE3K@45.152.201.150:8000"
