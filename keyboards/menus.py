@@ -8,7 +8,7 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 def main_menu_kb() -> ReplyKeyboardMarkup:
     """Главное меню внизу экрана."""
     kb = ReplyKeyboardBuilder()
-    kb.button(text="📝 Отправить сообщение")
+    kb.button(text="📝 Отправить анонимно")
     kb.button(text="🆘 Поддержка")
     kb.button(text="ℹ️ О боте")
     kb.adjust(2, 2)

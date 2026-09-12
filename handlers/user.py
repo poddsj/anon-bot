@@ -12,7 +12,7 @@ from aiogram.fsm.context import FSMContext
 
 from config import (
     PUBLIC_CHANNEL_ID, LOG_CHANNEL_ID, COOLDOWN,
-    REQUIRED_CHANNEL_URL, SUPPORT_CHANNEL_ID,
+    REQUIRED_CHANNEL_URL, SUPPORT_CHANNEL_ID, ADMINS
 )
 from database import (
     upsert_user, get_last_ts, set_last_ts, get_user,
@@ -20,6 +20,7 @@ from database import (
 )
 from keyboards.menus import main_menu_kb, cancel_kb
 from states.support import SupportStates
+from states.anon import AnonStates
 from utils.subscription import is_subscribed
 
 router = Router()
@@ -32,10 +33,13 @@ def subscribe_kb() -> InlineKeyboardMarkup:
     ])
 
 
-# ---------- Команды ----------
+# =========================================================
+# 1. КОМАНДЫ (самый высокий приоритет)
+# =========================================================
 
 @router.message(CommandStart(), F.chat.type == ChatType.PRIVATE)
-async def start_cmd(message: Message):
+async def start_cmd(message: Message, state: FSMContext):
+    await state.clear()
     await upsert_user(
         user_id=message.from_user.id,
         username=message.from_user.username,
@@ -54,10 +58,16 @@ async def start_cmd(message: Message):
 
 @router.message(Command("help"), F.chat.type == ChatType.PRIVATE)
 async def help_cmd(message: Message):
-    await message.answer("Отправь любое сообщение — оно уйдёт анонимно в канал.")
+    await message.answer(
+        "Отправь любое сообщение — оно уйдёт анонимно в канал.\n"
+        "Или выбери действие в меню ниже 👇",
+        reply_markup=main_menu_kb(),
+    )
 
 
-# ---------- Кнопки главного меню ----------
+# =========================================================
+# 2. КНОПКИ МЕНЮ (текст кнопок — точное совпадение)
+# =========================================================
 
 @router.message(F.text == "ℹ️ О боте")
 async def about_cmd(message: Message):
@@ -71,17 +81,20 @@ async def about_cmd(message: Message):
 
 
 @router.message(F.text == "📝 Отправить анонимно")
-async def send_prompt(message: Message):
+async def send_prompt(message: Message, state: FSMContext):
+    await state.set_state(AnonStates.waiting_anon)
     await message.answer(
-        "✍️ Просто отправь мне сообщение (текст, фото, видео, голосовое или документ) "
-        "— оно уйдёт в канал анонимно.",
+        "✍️ Отправь сообщение — оно уйдёт в канал анонимно.\n\n"
+        "Можно текст, фото, видео, голосовое или документ.",
+        reply_markup=cancel_kb(),
     )
 
 
-# ---------- Поддержка ----------
-
 @router.message(F.text == "🆘 Поддержка")
 async def support_start(message: Message, state: FSMContext):
+    if not SUPPORT_CHANNEL_ID:
+        await message.answer("🆘 Поддержка временно недоступна.")
+        return
     await state.set_state(SupportStates.waiting_message)
     await message.answer(
         "🆘 <b>Поддержка</b>\n\n"
@@ -91,6 +104,11 @@ async def support_start(message: Message, state: FSMContext):
     )
 
 
+# =========================================================
+# 3. FSM-ХЭНДЛЕРЫ (ловят только в своих состояниях)
+# =========================================================
+
+# --- Поддержка ---
 @router.message(SupportStates.waiting_message, F.contact)
 async def support_contact(message: Message):
     await message.answer("📞 Контакт в поддержку отправлять не нужно.")
@@ -108,23 +126,27 @@ async def support_message(message: Message, state: FSMContext, bot: Bot):
     else:
         header += "🔗 —\n"
     header += f"\n🆔 <code>{user.id}</code>\n"
-    header += f"🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    header += f"🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    header += "↩️ <i>Ответьте reply'ем на следующее сообщение, чтобы отправить ответ.</i>"
 
-    try:
-        await bot.send_message(SUPPORT_CHANNEL_ID, header)
-        sent = await bot.copy_message(
-            chat_id=SUPPORT_CHANNEL_ID,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-        )
-        await save_support_map(sent.message_id, user.id)
-        await bot.send_message(
-            SUPPORT_CHANNEL_ID,
-            "↩️ <i>Ответьте reply'ем на сообщение пользователя, чтобы отправить ответ.</i>",
-            reply_to_message_id=sent.message_id,
-        )
-    except Exception as e:
-        print("SUPPORT error:", e)
+    sent_any = False
+    for admin_id in ADMINS:
+        try:
+            # 1) Карточка с данными пользователя
+            await bot.send_message(admin_id, header)
+            # 2) Копия сообщения пользователя
+            sent = await bot.copy_message(
+                chat_id=admin_id,
+                from_chat_id=message.chat.id,
+                message_id=message.message_id,
+            )
+            # 3) Сохраняем связь "ID сообщения в ЛС админа → user_id"
+            await save_support_map(sent.message_id, user.id)
+            sent_any = True
+        except Exception as e:
+            print(f"SUPPORT error for admin {admin_id}:", e)
+
+    if not sent_any:
         await message.answer("❌ Не удалось отправить обращение. Попробуй позже.")
         return
 
@@ -134,52 +156,13 @@ async def support_message(message: Message, state: FSMContext, bot: Bot):
     )
 
 
-# ---------- Отмена действия ----------
-
-@router.callback_query(F.data == "cancel_action")
-async def cancel_action(call: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await call.message.edit_text("❌ Действие отменено.")
-    await call.answer()
-
-
-# ---------- Контакт (номер телефона) ----------
-
-@router.message(F.contact, F.chat.type == ChatType.PRIVATE)
-async def contact_handler(message: Message):
-    if message.contact.user_id == message.from_user.id:
-        await upsert_user(
-            user_id=message.from_user.id,
-            username=message.from_user.username,
-            full_name=message.from_user.full_name,
-            phone=message.contact.phone_number,
-        )
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-
-# ---------- Проверка подписки ----------
-
-@router.callback_query(F.data == "check_sub")
-async def check_sub(call: CallbackQuery, bot: Bot):
-    if await is_subscribed(bot, call.from_user.id):
-        await call.message.edit_text(
-            "✅ Спасибо за подписку! Теперь можешь отправлять сообщения."
-        )
-    else:
-        await call.answer("❌ Ты ещё не подписался.", show_alert=True)
-
-
-# ---------- Приём пользовательских сообщений ----------
-
+# --- Анонимная публикация (только по кнопке) ---
 @router.message(
+    AnonStates.waiting_anon,
     F.chat.type == ChatType.PRIVATE,
-    ~F.text.startswith("/"),
     ~F.contact,
 )
-async def handle_any(message: Message, bot: Bot):
+async def handle_anon(message: Message, state: FSMContext, bot: Bot):
     user = message.from_user
 
     if not await is_subscribed(bot, user.id):
@@ -221,17 +204,79 @@ async def handle_any(message: Message, bot: Bot):
         print("LOG_CHANNEL error:", e)
 
     await set_last_ts(user.id, now)
-    await message.answer("✅ Отправлено анонимно в канал!")
+    await state.clear()
+    await message.answer(
+        "✅ Отправлено анонимно в канал!",
+        reply_markup=main_menu_kb(),
+    )
 
 
-# ---------- Fallback для неизвестных команд ----------
+# =========================================================
+# 4. CALLBACK-КНОПКИ
+# =========================================================
 
+@router.callback_query(F.data == "cancel_action")
+async def cancel_action(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    try:
+        await call.message.edit_text("❌ Действие отменено.")
+    except Exception:
+        await call.message.answer("❌ Действие отменено.")
+    await call.answer()
+
+
+@router.callback_query(F.data == "check_sub")
+async def check_sub(call: CallbackQuery, bot: Bot):
+    if await is_subscribed(bot, call.from_user.id):
+        await call.message.edit_text(
+            "✅ Спасибо за подписку! Теперь можешь отправлять сообщения."
+        )
+    else:
+        await call.answer("❌ Ты ещё не подписался.", show_alert=True)
+
+
+# =========================================================
+# 5. КОНТАКТ (перехватываем, не даём уйти в канал)
+# =========================================================
+
+@router.message(F.contact, F.chat.type == ChatType.PRIVATE)
+async def contact_handler(message: Message):
+    if message.contact.user_id == message.from_user.id:
+        await upsert_user(
+            user_id=message.from_user.id,
+            username=message.from_user.username,
+            full_name=message.from_user.full_name,
+            phone=message.contact.phone_number,
+        )
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+# =========================================================
+# 6. FALLBACK'И (самые низкие приоритеты)
+# =========================================================
+
+# Неизвестные команды
 @router.message(F.chat.type == ChatType.PRIVATE, F.text.startswith("/"))
 async def unknown_command(message: Message):
     await message.answer("❓ Неизвестная команда. Используй /start.")
 
 
-# ---------- Хелпер ----------
+# Любое сообщение вне FSM-состояний и не команда
+@router.message(F.chat.type == ChatType.PRIVATE, ~F.text.startswith("/"), ~F.contact)
+async def handle_other(message: Message):
+    await message.answer(
+        "🤔 Чтобы отправить анонимное сообщение, нажми кнопку "
+        "«📝 Отправить анонимно» в меню ниже 👇",
+        reply_markup=main_menu_kb(),
+    )
+
+
+# =========================================================
+# ХЕЛПЕР
+# =========================================================
 
 async def _build_user_info(user_id: int) -> str:
     row = await get_user(user_id)
