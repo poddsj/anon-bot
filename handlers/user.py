@@ -12,7 +12,7 @@ from aiogram.fsm.context import FSMContext
 
 from config import (
     PUBLIC_CHANNEL_ID, LOG_CHANNEL_ID, COOLDOWN,
-    REQUIRED_CHANNEL_URL, SUPPORT_CHANNEL_ID, ADMINS
+    REQUIRED_CHANNEL_URL, ADMINS
 )
 from database import (
     upsert_user, get_last_ts, set_last_ts, get_user,
@@ -92,9 +92,6 @@ async def send_prompt(message: Message, state: FSMContext):
 
 @router.message(F.text == "🆘 Поддержка")
 async def support_start(message: Message, state: FSMContext):
-    if not SUPPORT_CHANNEL_ID:
-        await message.answer("🆘 Поддержка временно недоступна.")
-        return
     await state.set_state(SupportStates.waiting_message)
     await message.answer(
         "🆘 <b>Поддержка</b>\n\n"
